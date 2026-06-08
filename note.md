@@ -23,11 +23,12 @@ Go<function name>(<tham số>)
 
 - Channel: cung cấp cho các Goroutine
 
-Tạo channel: <tên channel> := make(chan <kiểu>)
+```Tạo channel: <tên channel> := make(chan <kiểu>)
 
 Gửi vào channel: <tên channel> <- <giá trị>
 
 Lấy dữ liệu ra từ channel: <biến lưu trữ giá trị> <- <tên channel>
+```
 
 ## CPU usage type
 
@@ -50,9 +51,9 @@ Lấy dữ liệu ra từ channel: <biến lưu trữ giá trị> <- <tên chann
 
 ## Network
 
-- TCP (Transport Control Protocol)
+- TCP (Transmission Control Protocol): TCP bắt buộc hai phía phải bắt tay 3 bước để xác nhận kết nối, giúp đảm bảo dữ liệu không bị mất, không bị lỗi và đến đúng thứ tự.
 
-- Port ở trạng thái listen, tức là phần mềm mở cái port đó ra và lắng nghe kết nối từ nơi khác tới
+- Port ở trạng thái LISTEN: Nghĩa là có một phần mềm/dịch vụ (như Web Server, Database) đang chạy ngầm trên hệ điều hành, chủ động mở cổng đó ra và chờ các yêu cầu kết nối gửi tới từ client. Nếu không có phần mềm nào LISTEN ở cổng đó, mọi yêu cầu kết nối gửi tới sẽ bị hệ điều hành từ chối (Connection Refused). Sau LISTEN là ESTABLISHED.
 
 - Kiểm tra kết nối TCP (vài cách thường dùng)
 
@@ -61,5 +62,7 @@ Lấy dữ liệu ra từ channel: <biến lưu trữ giá trị> <- <tên chann
   telnet: kiểm tra server có mở port 8080: telnet 192.168.1.10 8080
 
   nc/netcat: nc -vz 192.168.1.10 8080, nc -vz 192.168.1.10 22 80 443 8080 (kiểm tra nhiều port)
+
+  Powershell: Test-NetConnection google.com -Port 443
 
 Ví dụ trong Go: kiểm tra xem server có đang mở port 3306 không? net.DialTimeout("tcp", "192.168.1.10:3306", time.Second\*3)

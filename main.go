@@ -51,5 +51,6 @@ func main() {
 	for i := 1; i <= 5; i++ {
 		sysMetrics := <-sysChan
 		fmt.Printf("System Info lần %d: %+v\n", i, sysMetrics)
+		time.Sleep(5 * time.Second)
 	}
 }
