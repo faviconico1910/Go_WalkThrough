@@ -113,7 +113,7 @@ func collectSystemMetrics(config Config) ([]Metric, error) {
 			Timestamp: time.Now().Unix(),
 			Tags: map[string]string{
 				"cpu_core": "all",
-				"state":    "user",
+				"state":    "total",
 			},
 		})
 	}
