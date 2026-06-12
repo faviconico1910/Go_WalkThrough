@@ -2,11 +2,26 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
+	"gopkg.in/yaml.v3"
 )
+
+// create config struct
+type Config struct {
+	Agent struct {
+		Name     string `yaml:"name"`
+		Interval int    `yaml:"interval_seconds"`
+	} `yaml:"agent"`
+
+	Collectors struct {
+		CPU bool `yaml:"cpu"`
+		RAM bool `yaml:"ram"`
+	} `yaml:"collectors"`
+}
 
 type SystemInfo struct {
 	Name     string `json:"server_name"`
@@ -16,25 +31,38 @@ type SystemInfo struct {
 	ErrorMsg string `json:"error_msg"`
 }
 
-func getSystemInfo(ch chan<- SystemInfo) {
+func getSystemInfo(ch chan<- SystemInfo, config Config) {
 
-	for {
+	interval := time.Duration(config.Agent.Interval) * time.Second
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for range ticker.C {
 		// Get CPU usage
 		cpuPercent, err := cpu.Percent(time.Second, false)
 		if err != nil {
-			fmt.Println("Error getting CPU usage:", err)
-			return
+			ch <- SystemInfo{
+				Name:     config.Agent.Name,
+				Time:     time.Now().Format(time.RFC3339),
+				ErrorMsg: fmt.Sprintf("[ERROR]: Error getting CPU usage failed: %v", err),
+			}
+			continue
 		}
 
 		// Get RAM usage
 		ramUsage, err := mem.VirtualMemory()
 		if err != nil {
-			fmt.Println("Error getting RAM usage:", err)
-			return
+			ch <- SystemInfo{
+				Name:     config.Agent.Name,
+				Time:     time.Now().Format(time.RFC3339),
+				ErrorMsg: fmt.Sprintf("[ERROR]: getting RAM usage failed: %v", err),
+			}
+			continue
 		}
 
 		sysInfo := SystemInfo{
-			Name: "Local Machine",
+			Name: config.Agent.Name,
 			CPU:  fmt.Sprintf("%.1f%%", cpuPercent[0]),
 			RAM:  fmt.Sprintf("%.1f%%", ramUsage.UsedPercent),
 			Time: time.Now().Format(time.RFC3339),
@@ -45,12 +73,38 @@ func getSystemInfo(ch chan<- SystemInfo) {
 }
 func main() {
 
-	sysChan := make(chan SystemInfo)
-	go getSystemInfo(sysChan)
-
-	for i := 1; i <= 5; i++ {
-		sysMetrics := <-sysChan
-		fmt.Printf("System Info lần %d: %+v\n", i, sysMetrics)
-		time.Sleep(5 * time.Second)
+	// đọc yaml file
+	yamlFile, err := os.ReadFile("config.yaml")
+	if err != nil {
+		fmt.Printf("[ERROR]: Error reading config file: %v\n", err)
+		return
 	}
+
+	var config Config
+
+	// unmarshal yaml file
+	err = yaml.Unmarshal(yamlFile, &config)
+	if err != nil {
+		fmt.Printf("[ERROR]: Error parsing config file: %v\n", err)
+		return
+	}
+
+	sysChan := make(chan SystemInfo)
+	go getSystemInfo(sysChan, config)
+
+	for sysMetrics := range sysChan {
+		if sysMetrics.ErrorMsg != "" {
+			fmt.Println(sysMetrics.ErrorMsg)
+			continue
+		}
+
+		fmt.Printf(
+			"[INFO] System Info:\nServer Name: %s\nCPU Usage: %s\nRAM Usage: %s\nTimestamp: %s\n",
+			sysMetrics.Name,
+			sysMetrics.CPU,
+			sysMetrics.RAM,
+			sysMetrics.Time,
+		)
+	}
+
 }

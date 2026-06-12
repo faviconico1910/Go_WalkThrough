@@ -1,0 +1,7 @@
+agent:
+  name: "sys-info-agent"
+  interval_seconds: 5
+
+collectors:
+  cpu: true
+  ram: true
