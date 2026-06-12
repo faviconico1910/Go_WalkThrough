@@ -1,0 +1,15 @@
+agent:
+  name: "sys-info-agent"
+  interval_seconds: 5
+
+collectors:
+  cpu: true
+  ram: true
+  disk: true
+  services: true
+
+services:
+  - name: "com.docker.service"
+    port: 0
+  - name: "postgresql-x64-17"
+    port: 5432

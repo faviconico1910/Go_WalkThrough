@@ -6,11 +6,10 @@ collectors:
   cpu: true
   ram: true
   disk: true
+  services: true
 
 services:
-  - name: "nginx"
-    host: "127.0.0.1"
-    port: 80
-  - name: "mysql"
-    host: "127.0.0.1"
-    port: 3306
+  - name: "com.docker.service"
+    port: 0
+  - name: "postgresql-x64-17"
+    port: 5432
