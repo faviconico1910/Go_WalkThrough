@@ -186,19 +186,30 @@ func collectSystemMetrics(config Config) ([]Metric, error) {
 
 	// lấy disk usage
 	if config.Collectors.DISK {
-		diskUsage, err := disk.Usage("C:\\")
+		// mount point logic
+		partitions, err := disk.Partitions(false)
 		if err != nil {
-			return nil, fmt.Errorf("collecting disk usage failed: %w", err)
+			return nil, fmt.Errorf("getting disk partitions failed: %w", err)
 		}
-		metrics = append(metrics, Metric{
-			Name:      "system.disk.utilization",
-			Value:     diskUsage.UsedPercent,
-			Unit:      "%",
-			Timestamp: time.Now().Unix(),
-			Tags: map[string]string{
-				"mount_point": diskUsage.Path,
-			},
-		})
+
+		for _, p := range partitions {
+			diskUsage, err := disk.Usage(p.Mountpoint)
+			if err != nil {
+				fmt.Printf("[ERROR]: collecting disk usage for %s failed: %v\n", p.Mountpoint, err)
+				continue
+			}
+			metrics = append(metrics, Metric{
+				Name:      "system.disk.utilization",
+				Value:     diskUsage.UsedPercent,
+				Unit:      "%",
+				Timestamp: time.Now().Unix(),
+				Tags: map[string]string{
+					"mount_point": diskUsage.Path,
+				},
+			})
+
+		}
+
 	}
 
 	return metrics, nil

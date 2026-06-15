@@ -70,3 +70,11 @@ Ví dụ trong Go: kiểm tra xem server có đang mở port 3306 không? net.Di
 ## CHECK OS Linux/Windows
 
 - Dùng runtime.GOOS
+
+## Mount Point Logic
+
+- Tận dụng chính hàm disk.Partitions(false) của thư viện gopsutil. Hàm này:
+
+- Trên Windows: Nó sẽ quét và trả về danh sách các ổ đĩa đang có.
+
+- Trên Linux: Nó sẽ quét file hệ thống và trả về tất cả các Mount Point đang được gắn vào cây thư mục (/, /data, /home).
