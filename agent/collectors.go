@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -22,18 +23,65 @@ func buildOtelPayload(resource Resource, metrics []Metric, services []Service) P
 	}
 }
 
-func checkWindowsService(svc ServiceConfig) Service {
+// func checkWindowsService(svc ServiceConfig) Service {
+// 	start := time.Now()
+
+// 	cmd := exec.Command("sc", "query", svc.Name)
+// 	output, err := cmd.Output()
+
+// 	responseTimeMs := float64(time.Since(start).Microseconds()) / 1000.0
+// 	status := "down"
+
+// 	if err == nil {
+// 		out := string(output)
+// 		if strings.Contains(out, "RUNNING") {
+// 			status = "up"
+// 		}
+// 	}
+
+// 	return Service{
+// 		Name:           svc.Name,
+// 		Status:         status,
+// 		Port:           svc.Port,
+// 		ResponseTimeMs: responseTimeMs,
+// 		Timestamp:      time.Now().Unix(),
+// 	}
+// }
+
+func checkServiceStatus(svc ServiceConfig) Service {
 	start := time.Now()
-
-	cmd := exec.Command("sc", "query", svc.Name)
-	output, err := cmd.Output()
-
-	responseTimeMs := float64(time.Since(start).Microseconds()) / 1000.0
 	status := "down"
+	var cmd *exec.Cmd
 
-	if err == nil {
-		out := string(output)
-		if strings.Contains(out, "RUNNING") {
+	// nhận diện os
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("sc", "query", svc.Name)
+	case "linux":
+		cmd = exec.Command("systemctl", "is-active", svc.Name)
+	default:
+		fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+		return Service{
+			Name:           svc.Name,
+			Status:         "unknown",
+			Port:           svc.Port,
+			ResponseTimeMs: 0,
+			Timestamp:      time.Now().Unix(),
+		}
+	}
+
+	// execute
+	output, err := cmd.Output()
+	responseTimeMs := float64(time.Since(start).Microseconds()) / 1000.0
+
+	outStr := strings.ToUpper(string(output))
+
+	if runtime.GOOS == "windows" {
+		if err == nil && strings.Contains(outStr, "RUNNING") {
+			status = "up"
+		}
+	} else if runtime.GOOS == "linux" {
+		if strings.Contains(outStr, "ACTIVE") && !strings.Contains(outStr, "INACTIVE") {
 			status = "up"
 		}
 	}
@@ -50,7 +98,7 @@ func checkWindowsService(svc ServiceConfig) Service {
 func collectServices(services []ServiceConfig) []Service {
 	svcList := []Service{}
 	for _, svc := range services {
-		svcList = append(svcList, checkWindowsService(svc))
+		svcList = append(svcList, checkServiceStatus(svc))
 	}
 	return svcList
 }

@@ -66,3 +66,7 @@ Lấy dữ liệu ra từ channel: <biến lưu trữ giá trị> <- <tên chann
   Powershell: Test-NetConnection google.com -Port 443
 
 Ví dụ trong Go: kiểm tra xem server có đang mở port 3306 không? net.DialTimeout("tcp", "192.168.1.10:3306", time.Second\*3)
+
+## CHECK OS Linux/Windows
+
+- Dùng runtime.GOOS
