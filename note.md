@@ -44,7 +44,7 @@ Lấy dữ liệu ra từ channel: <biến lưu trữ giá trị> <- <tên chann
 - Available memory: Đo lường chính xác lượng RAM thực sự có thể sử dụng cho các tác vụ mới mà không làm hệ thống bị treo.
   Công thức tính:
 
-  `Available memory (in %) = ((Free+Cached)/TotalMem)*100`
+  `Available memory (in %) = ((Free+Cached)/TotalMem)*100. Trong thư viện, đã có sẵn free + cached + buffer là 1 trường Available.`
 
 - Mount Point: Các folder như /, /home, /var, ...
 - Mount: Hành động lấy ổ đĩa vật lí và gắn vào một thư mục, ví dụ mount ổ SSD 1T riêng vào /data, thì dữ liệu được lưu trong /data sẽ không ở trong ổ đĩa chính mà sẽ được lưu thẳng xuống SSD 1T

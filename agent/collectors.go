@@ -124,9 +124,10 @@ func collectSystemMetrics(config Config) ([]Metric, error) {
 		if err != nil {
 			return nil, fmt.Errorf("collecting ram usage failed: %w", err)
 		}
+		UsedPercent := float64(ramUsage.Total-ramUsage.Available) / float64(ramUsage.Total) * 100.0
 		metrics = append(metrics, Metric{
 			Name:      "system.memory.usage",
-			Value:     ramUsage.UsedPercent,
+			Value:     UsedPercent,
 			Unit:      "%",
 			Timestamp: time.Now().Unix(),
 			Tags: map[string]string{
