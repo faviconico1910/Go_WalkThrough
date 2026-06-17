@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -24,13 +23,6 @@ func main() {
 	sysChan := make(chan Payload)
 	go getSystemInfo(sysChan, config)
 
-	for payload := range sysChan {
-		jsonData, err := json.MarshalIndent(payload, "", "  ")
-		if err != nil {
-			fmt.Printf("[ERROR]: Error marshalling JSON: %v\n", err)
-			continue
-		}
-		fmt.Println(string(jsonData))
-		fmt.Print("-----------------------------------------------------")
-	}
+	apiUrl := "http://localhost:8080/api/metrics"
+	processAndSend(sysChan, apiUrl)
 }

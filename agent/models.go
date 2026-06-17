@@ -1,5 +1,7 @@
 package main
 
+import "sync"
+
 type Resource struct {
 	Host       string `json:"host"`
 	IPAddress  string `json:"ip_address"`
@@ -28,4 +30,10 @@ type Payload struct {
 	Resource Resource  `json:"resource"`
 	Metrics  []Metric  `json:"metrics"`
 	Services []Service `json:"services"`
+}
+
+type MemoryQueue struct {
+	mu       sync.Mutex
+	capacity int
+	buffer   []Payload
 }

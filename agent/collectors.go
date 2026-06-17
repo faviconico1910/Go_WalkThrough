@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -22,31 +26,6 @@ func buildOtelPayload(resource Resource, metrics []Metric, services []Service) P
 		Services: services,
 	}
 }
-
-// func checkWindowsService(svc ServiceConfig) Service {
-// 	start := time.Now()
-
-// 	cmd := exec.Command("sc", "query", svc.Name)
-// 	output, err := cmd.Output()
-
-// 	responseTimeMs := float64(time.Since(start).Microseconds()) / 1000.0
-// 	status := "down"
-
-// 	if err == nil {
-// 		out := string(output)
-// 		if strings.Contains(out, "RUNNING") {
-// 			status = "up"
-// 		}
-// 	}
-
-// 	return Service{
-// 		Name:           svc.Name,
-// 		Status:         status,
-// 		Port:           svc.Port,
-// 		ResponseTimeMs: responseTimeMs,
-// 		Timestamp:      time.Now().Unix(),
-// 	}
-// }
 
 func checkServiceStatus(svc ServiceConfig) Service {
 	start := time.Now()
@@ -93,6 +72,67 @@ func checkServiceStatus(svc ServiceConfig) Service {
 		ResponseTimeMs: responseTimeMs,
 		Timestamp:      time.Now().Unix(),
 	}
+}
+
+// tạo 1 queue mới để lưu trữ payload khi offline
+func NewMemoryQueue(capacity int) *MemoryQueue {
+	return &MemoryQueue{
+		buffer:   make([]Payload, 0, capacity),
+		capacity: capacity,
+	}
+}
+
+// queue và enqueue
+func (q *MemoryQueue) Push(payload Payload) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if len(q.buffer) >= q.capacity {
+		q.buffer[0] = Payload{}
+		q.buffer = q.buffer[1:]
+	}
+	q.buffer = append(q.buffer, payload)
+}
+
+func (q *MemoryQueue) Pop() (Payload, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.buffer) == 0 {
+		return Payload{}, false
+	}
+	payload := q.buffer[0]
+	q.buffer[0] = Payload{}
+	q.buffer = q.buffer[1:]
+	return payload, true
+}
+
+// tính độ dài buffer
+func (q *MemoryQueue) Length() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.buffer)
+}
+
+// hàm gửi dữ liệu lên API Hub
+func sendPayload(payload Payload, apiUrl string) error {
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("error marshalling payload to JSON: %w", err)
+	}
+
+	client := http.Client{Timeout: 5 * time.Second}
+
+	resp, err := client.Post(apiUrl, "application/json", bytes.NewBuffer(data))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned status: %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func collectServices(services []ServiceConfig) []Service {
@@ -150,7 +190,7 @@ func collectSystemMetrics(config Config) ([]Metric, error) {
 
 	// lấy cpu usage
 	if config.Collectors.CPU {
-		cpuPercent, err := cpu.Percent(time.Second, false)
+		cpuPercent, err := cpu.Percent(0, false)
 		if err != nil {
 			return nil, fmt.Errorf("collecting cpu usage failed: %w", err)
 		}
@@ -215,11 +255,101 @@ func collectSystemMetrics(config Config) ([]Metric, error) {
 	return metrics, nil
 }
 
+func processAndSend(ch <-chan Payload, apiUrl string) {
+	// Khởi tạo hàng đợi RAM 300 bản ghi
+	queue := NewMemoryQueue(300)
+	isOffline := false
+
+	var stateMu sync.Mutex
+
+	for payload := range ch {
+		jsonData, err := json.MarshalIndent(payload, "", "  ")
+		if err != nil {
+			fmt.Printf("[ERROR]: Error marshalling JSON: %v\n", err)
+			continue
+		}
+		fmt.Println(string(jsonData))
+		fmt.Println("-----------------------------------------------------")
+
+		stateMu.Lock()
+		// offline
+		if isOffline {
+			queue.Push(payload)
+			fmt.Printf("[WARN]: Đang offline. Ghi vào RAM Cache. Hiện có %d bản ghi trong RAM\n", queue.Length())
+			stateMu.Unlock()
+			fmt.Println("-----------------------------------------------------")
+			continue
+		}
+		stateMu.Unlock()
+		// online
+		err = sendPayload(payload, apiUrl)
+		if err != nil {
+			// Mất mạng -> Đẩy vào Ring Buffer
+			fmt.Printf("[WARN]: Kết nối thất bại (%v). Ghi vào RAM Cache.\n", err)
+			queue.Push(payload)
+
+			stateMu.Lock()
+			isOffline = true
+			stateMu.Unlock()
+
+			// chạy worker routine
+			go func() {
+				ticker := time.NewTicker(5 * time.Second)
+				defer ticker.Stop()
+
+				for range ticker.C {
+					if queue.Length() == 0 {
+						stateMu.Lock()
+						isOffline = false // trả lại trạng thái online sau khi đã gửi hết cache
+						stateMu.Unlock()
+						fmt.Println("[INFO]: Đã gửi hết cache. Trạng thái online trở lại.")
+						fmt.Println("-----------------------------------------------------")
+						return
+					}
+
+					testPayload, ok := queue.Pop()
+					if !ok {
+						fmt.Println("[INFO]: Không còn bản ghi trong RAM Cache.")
+						continue
+					}
+
+					err := sendPayload(testPayload, apiUrl)
+					if err != nil {
+						queue.mu.Lock()
+						queue.buffer = append([]Payload{testPayload}, queue.buffer...)
+						queue.mu.Unlock()
+						fmt.Println("[RETRY]: Thử kết nối lại thất bại")
+						continue
+					}
+					fmt.Println("[SUCCESS]: Kết nối mạng đã phục hồi! Bắt đầu enqueue")
+					for queue.Length() > 0 {
+						payload, ok := queue.Pop()
+						if !ok {
+							break
+						}
+
+						_ = sendPayload(payload, apiUrl)
+						fmt.Printf("[INFO]: Đã gửi 1 bản ghi từ RAM Cache. Còn lại %d bản ghi trong RAM\n", queue.Length())
+						time.Sleep(1500 * time.Millisecond)
+					}
+					stateMu.Lock()
+					isOffline = false
+					stateMu.Unlock()
+					return
+				}
+			}()
+		} else {
+			fmt.Println("[INFO]: Gửi dữ liệu thành công.")
+		}
+	}
+}
+
 func getSystemInfo(ch chan<- Payload, config Config) {
 	interval := time.Duration(config.Agent.Interval) * time.Second
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	_, _ = cpu.Percent(0, false)
 	for range ticker.C {
 		resource, err := collectResource()
 		if err != nil {

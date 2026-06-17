@@ -78,3 +78,24 @@ Ví dụ trong Go: kiểm tra xem server có đang mở port 3306 không? net.Di
 - Trên Windows: Nó sẽ quét và trả về danh sách các ổ đĩa đang có.
 
 - Trên Linux: Nó sẽ quét file hệ thống và trả về tất cả các Mount Point đang được gắn vào cây thư mục (/, /data, /home).
+
+# 15/6/2026
+
+- Sự khác biệt giữa cpu.Percent(time.Second, false) và cpu.Percent(0, false)
+
+cpu.Percent(time.Second, false): Trả về phần trăm CPU được sử dụng tại thời điểm gọi, sau đó sleep 1s, rồi lại trả về kết quả
+
+cpu.Percent(0, false): Trả về phần trăm CPU trung bình được sử dụng trong khoảng thời gian giữa hai lần gọi hàm.
+
+Xử lý khi hệ thống bị rớt mạng hoặc backend trả về lỗi
+
+**Khi mất mạng**:
+
+- Dùng Mutex Lock để khóa bảo vệ bộ nhớ (tránh xung đột dữ liệu giữa các luồng).
+
+- Đẩy dữ liệu vào Memory Queue (RAM) theo cơ chế FIFO, tối đa 300 bản ghi, để không làm mất dữ liệu và không làm tràn RAM của máy.
+
+**Khi có mạng lại**:
+
+- Một Goroutine chạy ngầm phát hiện ra server đã sống lại.
+- Kích hoạt chế độ gửi bù: Rút từng bản ghi trong RAM ra gửi, giãn cách nhau 1-2 giây để bảo vệ backend không bị sập vì quá tải.
