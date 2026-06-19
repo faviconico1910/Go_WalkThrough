@@ -1,6 +1,6 @@
 agent:
   name: "sys-info-agent"
-  interval_seconds: 1
+  interval_seconds: 5
   api_url: "http://localhost:8080/api/metrics"
 buffer:
   max_capacity: 300

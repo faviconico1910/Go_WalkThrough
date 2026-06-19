@@ -206,20 +206,77 @@ func collectSystemMetrics(config Config) ([]Metric, error) {
 
 	// lấy cpu usage
 	if config.Collectors.CPU {
-		cpuPercent, err := cpu.Percent(0, false)
+		t1, err := cpu.Times(false)
 		if err != nil {
-			return nil, fmt.Errorf("collecting cpu usage failed: %w", err)
+			return nil, fmt.Errorf("collecting cpu times t1 failed: %w", err)
 		}
-		metrics = append(metrics, Metric{
-			Name:      "system.cpu.utilization",
-			Value:     cpuPercent[0],
-			Unit:      "%",
-			Timestamp: time.Now().Unix(),
-			Tags: map[string]string{
-				"cpu_core": "all",
-				"state":    "total",
-			},
-		})
+
+		// nghỉ 1 khoảng thời gian để tính toán cpu usage chính xác hơn
+		time.Sleep(200 * time.Millisecond)
+
+		t2, err := cpu.Times(false)
+		if err != nil {
+			return nil, fmt.Errorf("collecting cpu times t2 failed: %w", err)
+		}
+
+		v1 := t1[0]
+		v2 := t2[0]
+		// tổng delta của tất cả các loại thời gian CPU giữa 2 lần đo
+		totalDiff := (v2.User - v1.User) + (v2.System - v1.System) + (v2.Idle - v1.Idle) +
+			(v2.Nice - v1.Nice) + (v2.Iowait - v1.Iowait) + (v2.Irq - v1.Irq) +
+			(v2.Softirq - v1.Softirq) + (v2.Steal - v1.Steal)
+		if totalDiff > 0 {
+			userPercent := ((v2.User - v1.User) / totalDiff) * 100
+			systemPercent := ((v2.System - v1.System) / totalDiff) * 100
+			iowaitPercent := ((v2.Iowait - v1.Iowait) / totalDiff) * 100
+			totalPercent := ((totalDiff - (v2.Idle - v1.Idle)) / totalDiff) * 100
+
+			metrics = append(metrics, Metric{
+				Name:      "system.cpu.user",
+				Value:     userPercent,
+				Unit:      "%",
+				Timestamp: time.Now().Unix(),
+				Tags: map[string]string{
+					"cpu_core": "all",
+					"state":    "user",
+				},
+			})
+
+			metrics = append(metrics, Metric{
+				Name:      "system.cpu.system",
+				Value:     systemPercent,
+				Unit:      "%",
+				Timestamp: time.Now().Unix(),
+				Tags: map[string]string{
+					"cpu_core": "all",
+					"state":    "system",
+				},
+			})
+
+			metrics = append(metrics, Metric{
+				Name:      "system.cpu.iowait",
+				Value:     iowaitPercent,
+				Unit:      "%",
+				Timestamp: time.Now().Unix(),
+				Tags: map[string]string{
+					"cpu_core": "all",
+					"state":    "iowait",
+				},
+			})
+
+			// cpu tổng
+			metrics = append(metrics, Metric{
+				Name:      "system.cpu.utilization",
+				Value:     totalPercent,
+				Unit:      "%",
+				Timestamp: time.Now().Unix(),
+				Tags: map[string]string{
+					"cpu_core": "all",
+					"state":    "total",
+				},
+			})
+		}
+
 	}
 
 	// lấy ram usage
@@ -229,6 +286,7 @@ func collectSystemMetrics(config Config) ([]Metric, error) {
 			return nil, fmt.Errorf("collecting ram usage failed: %w", err)
 		}
 		UsedPercent := float64(ramUsage.Total-ramUsage.Available) / float64(ramUsage.Total) * 100.0
+		// ram used
 		metrics = append(metrics, Metric{
 			Name:      "system.memory.usage",
 			Value:     UsedPercent,
@@ -236,6 +294,28 @@ func collectSystemMetrics(config Config) ([]Metric, error) {
 			Timestamp: time.Now().Unix(),
 			Tags: map[string]string{
 				"state": "used",
+			},
+		})
+
+		// total ram bytes
+		metrics = append(metrics, Metric{
+			Name:      "system.memory.usage",
+			Value:     float64(ramUsage.Total),
+			Unit:      "bytes",
+			Timestamp: time.Now().Unix(),
+			Tags: map[string]string{
+				"state": "total",
+			},
+		})
+
+		// available ram bytes
+		metrics = append(metrics, Metric{
+			Name:      "system.memory.usage",
+			Value:     float64(ramUsage.Available),
+			Unit:      "bytes",
+			Timestamp: time.Now().Unix(),
+			Tags: map[string]string{
+				"state": "available",
 			},
 		})
 	}
