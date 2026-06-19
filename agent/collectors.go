@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -114,25 +113,30 @@ func (q *MemoryQueue) Length() int {
 }
 
 // hàm gửi dữ liệu lên API Hub
-func sendPayload(payload Payload, apiUrl string) error {
+func sendPayload(payload Payload, apiUrl string) (bool, error) {
 
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("error marshalling payload to JSON: %w", err)
+		return false, err
 	}
 
 	client := http.Client{Timeout: 5 * time.Second}
 
 	resp, err := client.Post(apiUrl, "application/json", bytes.NewBuffer(data))
 	if err != nil {
-		return err
+		return true, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned status: %d", resp.StatusCode)
+	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+		fmt.Printf("[ERROR] Error Code: (%d)", resp.StatusCode)
+		return false, nil
 	}
-	return nil
+	// 5xx mới là lỗi server
+	if resp.StatusCode >= 500 {
+		return true, fmt.Errorf("[ERROR] Server error: received status code %d", resp.StatusCode)
+	}
+	return false, nil
 }
 
 func collectServices(services []ServiceConfig) []Service {
@@ -258,9 +262,6 @@ func collectSystemMetrics(config Config) ([]Metric, error) {
 func processAndSend(ch <-chan Payload, apiUrl string) {
 	// Khởi tạo hàng đợi RAM 300 bản ghi
 	queue := NewMemoryQueue(300)
-	isOffline := false
-
-	var stateMu sync.Mutex
 
 	for payload := range ch {
 		jsonData, err := json.MarshalIndent(payload, "", "  ")
@@ -270,77 +271,46 @@ func processAndSend(ch <-chan Payload, apiUrl string) {
 		}
 		fmt.Println(string(jsonData))
 		fmt.Println("-----------------------------------------------------")
-
-		stateMu.Lock()
-		// offline
-		if isOffline {
-			queue.Push(payload)
-			fmt.Printf("[WARN]: Đang offline. Ghi vào RAM Cache. Hiện có %d bản ghi trong RAM\n", queue.Length())
-			stateMu.Unlock()
-			fmt.Println("-----------------------------------------------------")
-			continue
-		}
-		stateMu.Unlock()
-		// online
-		err = sendPayload(payload, apiUrl)
-		if err != nil {
-			// Mất mạng -> Đẩy vào Ring Buffer
-			fmt.Printf("[WARN]: Kết nối thất bại (%v). Ghi vào RAM Cache.\n", err)
-			queue.Push(payload)
-
-			stateMu.Lock()
-			isOffline = true
-			stateMu.Unlock()
-
-			// chạy worker routine
-			go func() {
-				ticker := time.NewTicker(5 * time.Second)
-				defer ticker.Stop()
-
-				for range ticker.C {
-					if queue.Length() == 0 {
-						stateMu.Lock()
-						isOffline = false // trả lại trạng thái online sau khi đã gửi hết cache
-						stateMu.Unlock()
-						fmt.Println("[INFO]: Đã gửi hết cache. Trạng thái online trở lại.")
-						fmt.Println("-----------------------------------------------------")
-						return
-					}
-
-					testPayload, ok := queue.Pop()
-					if !ok {
-						fmt.Println("[INFO]: Không còn bản ghi trong RAM Cache.")
-						continue
-					}
-
-					err := sendPayload(testPayload, apiUrl)
-					if err != nil {
-						queue.mu.Lock()
-						queue.buffer = append([]Payload{testPayload}, queue.buffer...)
-						queue.mu.Unlock()
-						fmt.Println("[RETRY]: Thử kết nối lại thất bại")
-						continue
-					}
-					fmt.Println("[SUCCESS]: Kết nối mạng đã phục hồi! Bắt đầu enqueue")
-					for queue.Length() > 0 {
-						payload, ok := queue.Pop()
-						if !ok {
-							break
-						}
-
-						_ = sendPayload(payload, apiUrl)
-						fmt.Printf("[INFO]: Đã gửi 1 bản ghi từ RAM Cache. Còn lại %d bản ghi trong RAM\n", queue.Length())
-						time.Sleep(1500 * time.Millisecond)
-					}
-					stateMu.Lock()
-					isOffline = false
-					stateMu.Unlock()
-					return
+		if queue.Length() > 0 {
+			isOnline := true
+			for queue.Length() > 0 {
+				oldPayload, ok := queue.Pop()
+				if !ok {
+					break
 				}
-			}()
-		} else {
-			fmt.Println("[INFO]: Gửi dữ liệu thành công.")
+
+				retry, err := sendPayload(oldPayload, apiUrl)
+				if retry {
+					queue.mu.Lock()
+					queue.buffer = append([]Payload{oldPayload}, queue.buffer...)
+					queue.mu.Unlock()
+					fmt.Printf("[ERROR]: Failed to send old payload: %v. Will retry later.\n", err)
+					fmt.Printf("[INFO]: Còn %d bản ghi trong RAM\n", queue.Length())
+					isOnline = false
+					break
+				}
+
+				fmt.Printf("[FLUSH] Successfully send old payload. Còn %d bản ghi\n", queue.Length())
+				time.Sleep(1 * time.Second)
+			}
+
+			if !isOnline {
+				queue.Push(payload)
+				continue
+			}
+
+			fmt.Println("[INFO]: RAM is empty now!")
 		}
+
+		retry, err := sendPayload(payload, apiUrl)
+		if retry {
+			queue.Push(payload)
+			fmt.Printf("[ERROR]: Failed to send payload: %v. Will retry later.\n", err)
+			fmt.Printf("[INFO]: Còn %d bản ghi trong RAM\n", queue.Length())
+		} else if err == nil {
+			fmt.Println("[INFO]: Successfuly send payload to API Hub!")
+		}
+
 	}
 }
 
