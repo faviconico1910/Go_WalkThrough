@@ -92,6 +92,7 @@ func (q *MemoryQueue) Push(payload Payload) {
 	}
 
 	if len(q.buffer) >= q.capacity {
+		q.buffer[0] = Payload{}
 		q.buffer = q.buffer[1:]
 	}
 	q.buffer = append(q.buffer, payload)
