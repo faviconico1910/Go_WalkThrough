@@ -1,7 +1,10 @@
 agent:
   name: "sys-info-agent"
   interval_seconds: 5
-
+  api_url: "http://localhost:8080/api/metrics"
+buffer:
+  max_capacity: 300
+  flush_interval_ms: 1000
 collectors:
   cpu: true
   ram: true

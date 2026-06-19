@@ -86,8 +86,12 @@ func (q *MemoryQueue) Push(payload Payload) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
+	if q.capacity <= 0 {
+		q.buffer = append(q.buffer, payload)
+		return
+	}
+
 	if len(q.buffer) >= q.capacity {
-		q.buffer[0] = Payload{}
 		q.buffer = q.buffer[1:]
 	}
 	q.buffer = append(q.buffer, payload)
@@ -165,11 +169,18 @@ func collectResource() (Resource, error) {
 
 	return Resource{
 		Host:       hostname,
-		IPAddress:  ipList[0],
 		OSPlatform: hostInfo.Platform,
 		OSVersion:  hostInfo.PlatformVersion,
 		Uptime:     int64(hostInfo.Uptime),
+		IPAddress:  firstLocalIP(ipList),
 	}, nil
+}
+
+func firstLocalIP(ipList []string) string {
+	if len(ipList) == 0 {
+		return ""
+	}
+	return ipList[0]
 }
 
 func getLocalIP() ([]string, error) {
@@ -259,9 +270,8 @@ func collectSystemMetrics(config Config) ([]Metric, error) {
 	return metrics, nil
 }
 
-func processAndSend(ch <-chan Payload, apiUrl string) {
-	// Khởi tạo hàng đợi RAM 300 bản ghi
-	queue := NewMemoryQueue(300)
+func processAndSend(ch <-chan Payload, apiUrl string, config Config) {
+	queue := NewMemoryQueue(config.Buffer.MaxCapacity)
 
 	for payload := range ch {
 		jsonData, err := json.MarshalIndent(payload, "", "  ")
@@ -285,17 +295,16 @@ func processAndSend(ch <-chan Payload, apiUrl string) {
 					queue.buffer = append([]Payload{oldPayload}, queue.buffer...)
 					queue.mu.Unlock()
 					fmt.Printf("[ERROR]: Failed to send old payload: %v. Will retry later.\n", err)
-					fmt.Printf("[INFO]: Còn %d bản ghi trong RAM\n", queue.Length())
 					isOnline = false
 					break
 				}
-
 				fmt.Printf("[FLUSH] Successfully send old payload. Còn %d bản ghi\n", queue.Length())
-				time.Sleep(1 * time.Second)
+				time.Sleep(time.Duration(config.Buffer.FlushInterval) * time.Millisecond)
 			}
 
 			if !isOnline {
 				queue.Push(payload)
+				fmt.Printf("[INFO]: RAM đang có %d bản ghi, sẽ gửi lại sau\n", queue.Length())
 				continue
 			}
 
@@ -306,7 +315,7 @@ func processAndSend(ch <-chan Payload, apiUrl string) {
 		if retry {
 			queue.Push(payload)
 			fmt.Printf("[ERROR]: Failed to send payload: %v. Will retry later.\n", err)
-			fmt.Printf("[INFO]: Còn %d bản ghi trong RAM\n", queue.Length())
+			fmt.Printf("[INFO]: Có %d bản ghi trong RAM\n", queue.Length())
 		} else if err == nil {
 			fmt.Println("[INFO]: Successfuly send payload to API Hub!")
 		}

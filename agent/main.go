@@ -23,6 +23,6 @@ func main() {
 	sysChan := make(chan Payload)
 	go getSystemInfo(sysChan, config)
 
-	apiUrl := "http://localhost:8080/api/metrics"
-	processAndSend(sysChan, apiUrl)
+	apiUrl := config.Agent.ApiURL
+	processAndSend(sysChan, apiUrl, config)
 }
