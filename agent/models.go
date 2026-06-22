@@ -1,6 +1,9 @@
 package main
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 type Resource struct {
 	Host       string `json:"host"`
@@ -36,4 +39,11 @@ type MemoryQueue struct {
 	mu       sync.Mutex
 	capacity int
 	buffer   []Payload
+}
+
+type DiskIOPSState struct {
+	mu             sync.Mutex
+	lastReadCount  uint64
+	lastWriteCount uint64
+	lastCheckTime  time.Time
 }

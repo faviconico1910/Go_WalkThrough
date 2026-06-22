@@ -18,6 +18,8 @@ import (
 	"github.com/shirou/gopsutil/v4/mem"
 )
 
+var diskState = &DiskIOPSState{}
+
 func buildOtelPayload(resource Resource, metrics []Metric, services []Service) Payload {
 	return Payload{
 		Resource: resource,
@@ -301,18 +303,18 @@ func collectSystemMetrics(config Config) ([]Metric, error) {
 		metrics = append(metrics, Metric{
 			Name:      "system.memory.usage",
 			Value:     float64(ramUsage.Total),
-			Unit:      "bytes",
+			Unit:      "By",
 			Timestamp: time.Now().Unix(),
 			Tags: map[string]string{
 				"state": "total",
 			},
 		})
 
-		// available ram bytes
+		// available ram By
 		metrics = append(metrics, Metric{
 			Name:      "system.memory.usage",
 			Value:     float64(ramUsage.Available),
-			Unit:      "bytes",
+			Unit:      "By",
 			Timestamp: time.Now().Unix(),
 			Tags: map[string]string{
 				"state": "available",
@@ -341,9 +343,88 @@ func collectSystemMetrics(config Config) ([]Metric, error) {
 				Timestamp: time.Now().Unix(),
 				Tags: map[string]string{
 					"mount_point": diskUsage.Path,
+					"state":       "used_percent",
 				},
 			})
 
+			metrics = append(metrics, Metric{
+				Name:      "system.disk.usage",
+				Value:     float64(diskUsage.Used),
+				Unit:      "By",
+				Timestamp: time.Now().Unix(),
+				Tags: map[string]string{
+					"mount_point": diskUsage.Path,
+					"state":       "used_bytes",
+				},
+			})
+
+			metrics = append(metrics, Metric{
+				Name:      "system.disk.usage",
+				Value:     float64(diskUsage.Free),
+				Unit:      "bytes",
+				Timestamp: time.Now().Unix(),
+				Tags: map[string]string{
+					"mount_point": diskUsage.Path,
+					"state":       "free_bytes",
+				},
+			})
+
+			metrics = append(metrics, Metric{
+				Name:      "system.disk.usage",
+				Value:     float64(diskUsage.Total),
+				Unit:      "By",
+				Timestamp: time.Now().Unix(),
+				Tags: map[string]string{
+					"mount_point": diskUsage.Path,
+					"state":       "total_bytes",
+				},
+			})
+
+		}
+		// tính disk IOPS
+		ioCounters, err := disk.IOCounters()
+		if err == nil && len(ioCounters) > 0 {
+			var totalReadCount uint64
+			var totalWriteCount uint64
+			// tổng số lần đọc và ghi từ tất cả các disk
+			for _, counter := range ioCounters {
+				totalReadCount += counter.ReadCount
+				totalWriteCount += counter.WriteCount
+			}
+			now := time.Now()
+			diskState.mu.Lock()
+			if !diskState.lastCheckTime.IsZero() { // nếu đã có lần kiểm tra trước đó
+				duration := now.Sub(diskState.lastCheckTime).Seconds() // delta T
+
+				if duration > 0 && totalReadCount >= diskState.lastReadCount && totalWriteCount >= diskState.lastWriteCount {
+					readIOPS := float64(totalReadCount-diskState.lastReadCount) / duration
+					writeIOPS := float64(totalWriteCount-diskState.lastWriteCount) / duration
+
+					metrics = append(metrics, Metric{
+						Name:      "system.disk.iops",
+						Value:     readIOPS,
+						Unit:      "ops/s",
+						Timestamp: now.Unix(),
+						Tags: map[string]string{
+							"operation": "read",
+						},
+					})
+
+					metrics = append(metrics, Metric{
+						Name:      "system.disk.iops",
+						Value:     writeIOPS,
+						Unit:      "ops/s",
+						Timestamp: now.Unix(),
+						Tags: map[string]string{
+							"operation": "write",
+						},
+					})
+				}
+			}
+			diskState.lastReadCount = totalReadCount
+			diskState.lastWriteCount = totalWriteCount
+			diskState.lastCheckTime = now
+			diskState.mu.Unlock()
 		}
 
 	}

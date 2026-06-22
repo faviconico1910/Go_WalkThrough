@@ -99,3 +99,17 @@ Xử lý khi hệ thống bị rớt mạng hoặc backend trả về lỗi
 
 - Một Goroutine chạy ngầm phát hiện ra server đã sống lại.
 - Kích hoạt chế độ gửi bù: Rút từng bản ghi trong RAM ra gửi, giãn cách nhau 1-2 giây để bảo vệ backend không bị sập vì quá tải.
+
+# 21/6/2026: Tính IOPS
+
+- `disk.IOCounters()`: Tổng số lần đọc (ReadCount) và Tổng số lần ghi (WriteCount) tích lũy kể từ lúc máy tính khởi động.
+
+```
+B1: Tại thời điểm T1: gọi disk.IOCounters(), lấy ReadCount_1 và WriteCount_1.
+B2: Chờ 1 khoảng thời gian ΔT
+B3: Tại thời điểm T2: gọi disk.IOCOunters() lần 2, lấy ReadCount_2 và WriteCount_2.
+B4: Công thức tính
+- Read IOPS = (ReadCount_2 - ReadCount_1) / ΔT
+- Write IOPS = (WriteCount_2 - WriteCount_1) / ΔT
+
+```
