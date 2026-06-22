@@ -35,7 +35,7 @@ func buildOtelPayload(resource Resource, metrics []Metric, services []Service) P
 
 func checkServiceStatus(svc ServiceConfig) Service {
 	start := time.Now()
-	status := "down"
+	osStatus := "down"
 	var cmd *exec.Cmd
 
 	// nhận diện os
@@ -57,23 +57,37 @@ func checkServiceStatus(svc ServiceConfig) Service {
 
 	// execute
 	output, err := cmd.Output()
-	responseTimeMs := float64(time.Since(start).Microseconds()) / 1000.0
 
 	outStr := strings.ToUpper(string(output))
 
 	if runtime.GOOS == "windows" {
 		if err == nil && strings.Contains(outStr, "RUNNING") {
-			status = "up"
+			osStatus = "up"
 		}
 	} else if runtime.GOOS == "linux" {
 		if strings.Contains(outStr, "ACTIVE") && !strings.Contains(outStr, "INACTIVE") {
-			status = "up"
+			osStatus = "up"
+		}
+	}
+	portStatus := "down"
+	if svc.Port >= 0 {
+		address := fmt.Sprintf("127.0.0.1:%d", svc.Port)
+
+		conn, err := net.DialTimeout("tcp", address, 1*time.Second) // kết nối tcp để check port
+		if err == nil {
+			portStatus = "up"
+			conn.Close()
 		}
 	}
 
+	finalStatus := "down"
+	if osStatus == "up" && portStatus == "up" {
+		finalStatus = "up"
+	}
+	responseTimeMs := float64(time.Since(start).Microseconds()) / 1000.0
 	return Service{
 		Name:           svc.Name,
-		Status:         status,
+		Status:         finalStatus,
 		Port:           svc.Port,
 		ResponseTimeMs: responseTimeMs,
 		Timestamp:      time.Now().Unix(),
