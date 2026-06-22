@@ -12,6 +12,7 @@ type Config struct {
 		RAM      bool `yaml:"ram"`
 		DISK     bool `yaml:"disk"`
 		Services bool `yaml:"services"`
+		Network  bool `yaml:"network"`
 	} `yaml:"collectors"`
 
 	Services []ServiceConfig `yaml:"services"`

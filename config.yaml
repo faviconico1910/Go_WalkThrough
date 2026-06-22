@@ -10,6 +10,7 @@ collectors:
   ram: true
   disk: true
   services: true
+  network: true
 
 services:
   - name: "com.docker.service"

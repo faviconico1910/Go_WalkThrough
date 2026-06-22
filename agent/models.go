@@ -47,3 +47,9 @@ type DiskIOPSState struct {
 	lastWriteCount uint64
 	lastCheckTime  time.Time
 }
+type NetIOState struct {
+	mu            sync.Mutex
+	lastBytesRecv map[string]uint64 // Lưu dung lượng nhận theo từng tên card mạng
+	lastBytesSent map[string]uint64 // Lưu dung lượng gửi theo từng tên card mạng
+	lastCheckTime time.Time
+}
