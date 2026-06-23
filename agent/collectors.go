@@ -70,7 +70,7 @@ func checkServiceStatus(svc ServiceConfig) Service {
 		}
 	}
 	portStatus := "down"
-	if svc.Port >= 0 {
+	if svc.Port > 0 {
 		address := fmt.Sprintf("127.0.0.1:%d", svc.Port)
 
 		conn, err := net.DialTimeout("tcp", address, 1*time.Second) // kết nối tcp để check port
@@ -81,8 +81,12 @@ func checkServiceStatus(svc ServiceConfig) Service {
 	}
 
 	finalStatus := "down"
-	if osStatus == "up" && portStatus == "up" {
-		finalStatus = "up"
+	if svc.Port == 0 {
+		finalStatus = osStatus
+	} else {
+		if osStatus == "up" && portStatus == "up" {
+			finalStatus = "up"
+		}
 	}
 	responseTimeMs := float64(time.Since(start).Microseconds()) / 1000.0
 	return Service{
@@ -446,79 +450,79 @@ func collectSystemMetrics(config Config) ([]Metric, error) {
 			diskState.mu.Unlock()
 		}
 
-		if config.Collectors.Network {
-			netCounters, err := psnet.IOCounters(true)
-			if err == nil && len(netCounters) > 0 {
-				now := time.Now()
-				timestamp := now.Unix()
-				netState.mu.Lock()
-				if !netState.lastCheckTime.IsZero() {
-					duration := now.Sub(netState.lastCheckTime).Seconds() // delta T
+	}
 
-					if duration > 0 {
-						for _, counter := range netCounters {
-							name := counter.Name
-							// bỏ qua loopback
-							if strings.Contains(name, "lo") || strings.Contains(name, "Loopback") {
+	if config.Collectors.Network {
+		netCounters, err := psnet.IOCounters(true)
+		if err == nil && len(netCounters) > 0 {
+			now := time.Now()
+			timestamp := now.Unix()
+			netState.mu.Lock()
+			if !netState.lastCheckTime.IsZero() {
+				duration := now.Sub(netState.lastCheckTime).Seconds() // delta T
+
+				if duration > 0 {
+					for _, counter := range netCounters {
+						name := counter.Name
+						// bỏ qua loopback
+						if strings.Contains(name, "lo") || strings.Contains(name, "Loopback") {
+							continue
+						}
+
+						// bỏ qua các card mạng ảo không có lưu lượng thực tế
+						if counter.BytesRecv == 0 && counter.BytesSent == 0 {
+							continue
+						}
+
+						lastRecv, hasOldRecv := netState.lastBytesRecv[name]
+						lastSent, hasOldSent := netState.lastBytesSent[name]
+
+						if hasOldRecv && hasOldSent && counter.BytesRecv >= lastRecv && counter.BytesSent >= lastSent {
+							recvSpeed := float64(counter.BytesRecv-lastRecv) / duration
+							sendSpeed := float64(counter.BytesSent-lastSent) / duration
+
+							// tốc độ bằng 0 thì bỏ qua
+							if recvSpeed == 0 && sendSpeed == 0 {
 								continue
 							}
 
-							// bỏ qua các card mạng ảo không có lưu lượng thực tế
-							if counter.BytesRecv == 0 && counter.BytesSent == 0 {
-								continue
-							}
+							// tốc độ nhận
+							metrics = append(metrics, Metric{
+								Name:      "system.network.io",
+								Value:     recvSpeed,
+								Unit:      "By/s",
+								Timestamp: timestamp,
+								Tags: map[string]string{
+									"interface": name,
+									"direction": "receive",
+								},
+							})
 
-							lastRecv, hasOldRecv := netState.lastBytesRecv[name]
-							lastSent, hasOldSent := netState.lastBytesSent[name]
-
-							if hasOldRecv && hasOldSent && counter.BytesRecv >= lastRecv && counter.BytesSent >= lastSent {
-								recvSpeed := float64(counter.BytesRecv-lastRecv) / duration
-								sendSpeed := float64(counter.BytesSent-lastSent) / duration
-
-								// tốc độ bằng 0 thì bỏ qua
-								if recvSpeed == 0 && sendSpeed == 0 {
-									continue
-								}
-
-								// tốc độ nhận
-								metrics = append(metrics, Metric{
-									Name:      "system.network.io",
-									Value:     recvSpeed,
-									Unit:      "By/s",
-									Timestamp: timestamp,
-									Tags: map[string]string{
-										"interface": name,
-										"direction": "receive",
-									},
-								})
-
-								// tốc độ gửi
-								metrics = append(metrics, Metric{
-									Name:      "system.network.io",
-									Value:     sendSpeed,
-									Unit:      "By/s",
-									Timestamp: timestamp,
-									Tags: map[string]string{
-										"interface": name,
-										"direction": "transmit", // chuẩn OTel dùng transmit thì phải
-									},
-								})
-							}
+							// tốc độ gửi
+							metrics = append(metrics, Metric{
+								Name:      "system.network.io",
+								Value:     sendSpeed,
+								Unit:      "By/s",
+								Timestamp: timestamp,
+								Tags: map[string]string{
+									"interface": name,
+									"direction": "transmit", // chuẩn OTel dùng transmit thì phải
+								},
+							})
 						}
 					}
 				}
-				// cập nhật trạng thái mạng
-				for _, counter := range netCounters {
-					netState.lastBytesRecv[counter.Name] = counter.BytesRecv
-					netState.lastBytesSent[counter.Name] = counter.BytesSent
-				}
-				netState.lastCheckTime = time.Now()
-				netState.mu.Unlock()
-			} else if err != nil {
-				fmt.Printf("[ERROR]: collecting network I/O failed: %v\n", err)
 			}
+			// cập nhật trạng thái mạng
+			for _, counter := range netCounters {
+				netState.lastBytesRecv[counter.Name] = counter.BytesRecv
+				netState.lastBytesSent[counter.Name] = counter.BytesSent
+			}
+			netState.lastCheckTime = time.Now()
+			netState.mu.Unlock()
+		} else if err != nil {
+			fmt.Printf("[ERROR]: collecting network I/O failed: %v\n", err)
 		}
-
 	}
 
 	return metrics, nil
