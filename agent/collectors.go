@@ -251,10 +251,10 @@ func collectSystemMetrics(config Config) ([]Metric, error) {
 			(v2.Nice - v1.Nice) + (v2.Iowait - v1.Iowait) + (v2.Irq - v1.Irq) +
 			(v2.Softirq - v1.Softirq) + (v2.Steal - v1.Steal)
 		if totalDiff > 0 {
-			userPercent := ((v2.User - v1.User) / totalDiff) * 100
-			systemPercent := ((v2.System - v1.System) / totalDiff) * 100
-			iowaitPercent := ((v2.Iowait - v1.Iowait) / totalDiff) * 100
-			totalPercent := ((totalDiff - (v2.Idle - v1.Idle)) / totalDiff) * 100
+			userPercent := ((v2.User - v1.User) * 100.0) / totalDiff
+			systemPercent := ((v2.System - v1.System) * 100.0) / totalDiff
+			iowaitPercent := ((v2.Iowait - v1.Iowait) * 100.0) / totalDiff
+			totalPercent := ((totalDiff - (v2.Idle - v1.Idle)) * 100.0) / totalDiff
 
 			metrics = append(metrics, Metric{
 				Name:      "system.cpu.user",
