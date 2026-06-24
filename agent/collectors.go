@@ -243,18 +243,26 @@ func collectSystemMetrics(config Config) ([]Metric, error) {
 		if err != nil {
 			return nil, fmt.Errorf("collecting cpu times t2 failed: %w", err)
 		}
-
-		v1 := t1[0]
-		v2 := t2[0]
+		var v1, v2 cpu.TimesStat
+		if len(t1) > 0 && len(t2) > 0 {
+			v1 = t1[0]
+			v2 = t2[0]
+		}
+		userDiff := float64(v2.User - v1.User)
+		systemDiff := float64(v2.System - v1.System)
+		idleDiff := float64(v2.Idle - v1.Idle)
+		iowaitDiff := float64(v2.Iowait - v1.Iowait)
+		niceDiff := float64(v2.Nice - v1.Nice)
+		irqDiff := float64(v2.Irq - v1.Irq)
+		softirqDiff := float64(v2.Softirq - v1.Softirq)
+		stealDiff := float64(v2.Steal - v1.Steal)
 		// tổng delta của tất cả các loại thời gian CPU giữa 2 lần đo
-		totalDiff := (v2.User - v1.User) + (v2.System - v1.System) + (v2.Idle - v1.Idle) +
-			(v2.Nice - v1.Nice) + (v2.Iowait - v1.Iowait) + (v2.Irq - v1.Irq) +
-			(v2.Softirq - v1.Softirq) + (v2.Steal - v1.Steal)
+		totalDiff := userDiff + systemDiff + idleDiff + niceDiff + iowaitDiff + irqDiff + softirqDiff + stealDiff
 		if totalDiff > 0 {
-			userPercent := ((v2.User - v1.User) * 100.0) / totalDiff
-			systemPercent := ((v2.System - v1.System) * 100.0) / totalDiff
-			iowaitPercent := ((v2.Iowait - v1.Iowait) * 100.0) / totalDiff
-			totalPercent := ((totalDiff - (v2.Idle - v1.Idle)) * 100.0) / totalDiff
+			userPercent := (userDiff / totalDiff) * 100.0
+			systemPercent := (systemDiff / totalDiff) * 100.0
+			iowaitPercent := (iowaitDiff / totalDiff) * 100.0
+			totalPercent := ((totalDiff - idleDiff) / totalDiff) * 100.0
 
 			metrics = append(metrics, Metric{
 				Name:      "system.cpu.user",
