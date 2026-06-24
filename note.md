@@ -113,3 +113,5 @@ B4: Công thức tính
 - Write IOPS = (WriteCount_2 - WriteCount_1) / ΔT
 
 ```
+
+# 23/6/2026: bảo mật trong agent
